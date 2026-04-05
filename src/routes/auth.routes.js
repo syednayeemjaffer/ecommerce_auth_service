@@ -6,12 +6,14 @@ const {
   login,
 } = require("../controller/auth.controller");
 
-const {
-  validateRegister,
-  validateLogin,
-} = require("../middleware/validate");
+const uploadUserImage = require("../utils/userimage");
 
-router.post("/register", validateRegister, register);
-router.post("/login", validateLogin, login);
+router.post(
+  "/register",
+  uploadUserImage.single("user_image"),
+  register
+);
+
+router.post("/login", login);
 
 module.exports = router;
