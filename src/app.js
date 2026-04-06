@@ -1,9 +1,19 @@
+require("dotenv").config();
+const { initializePool } = require("./config/db");
+require("./config/redis");
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
+
+async function init() {
+  await initializePool();
+}
+
+init();
 
 // routes
 const authRoutes = require("./routes/auth.routes");
@@ -40,4 +50,8 @@ app.use(
 // routes
 app.use("/api/auth", authRoutes);
 
-module.exports = app;
+const PORT = process.env.PORT || 5001;
+
+app.listen(PORT, () => {
+    console.log(`🚀 Auth service running on port ${PORT}`);
+});

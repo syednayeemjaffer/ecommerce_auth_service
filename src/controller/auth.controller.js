@@ -2,7 +2,7 @@ const bcrypt = require("bcrypt");
 const fs = require("fs");
 const path = require("path");
 
-const pool = require("../config/db");
+const { pool } = require("../config/db");
 const redis = require("../config/redis");
 const {
   generateAccessToken,
@@ -19,26 +19,10 @@ const ALLOWED_MIME_TYPES = [
   "image/jpg",
 ];
 
-const createUsersTableIfNotExists = async () => {
-  await pool.query(`
-    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-    CREATE TABLE IF NOT EXISTS users (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name VARCHAR(100) NOT NULL,
-      email VARCHAR(150) UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role VARCHAR(20) DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')),
-      user_image TEXT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `);
-};
 
 const register = async (req, res) => {
   try {
-    await createUsersTableIfNotExists();
-
     let { name, email, password, role } = req.body;
 
     // =========================
@@ -56,25 +40,16 @@ const register = async (req, res) => {
 
     name = name.trim();
 
-    if (name.length < 3) {
+    if (name.length < 3 || name.length > 30) {
       return res.status(400).json({
         success: false,
         error: {
           field: "name",
-          message: "Name must be at least 3 characters",
+          message: "Name must be at least 3 characters & no more than 30 characters",
         },
       });
     }
 
-    if (name.length > 30) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          field: "name",
-          message: "Name must be at most 30 characters",
-        },
-      });
-    }
 
     if (!nameRegex.test(name)) {
       return res.status(400).json({
@@ -99,7 +74,7 @@ const register = async (req, res) => {
       });
     }
 
-    email = email.trim().toLowerCase();
+    email = email.trim()
 
     if (!emailRegex.test(email)) {
       return res.status(400).json({
@@ -124,62 +99,23 @@ const register = async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
+    if (password.length < 6 || password.length > 30) {
       return res.status(400).json({
         success: false,
         error: {
           field: "password",
-          message: "Password must be at least 6 characters",
+          message: "Password must be at least 6 characters and at most 30 characters",
         },
       });
     }
 
-    if (password.length > 30) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          field: "password",
-          message: "Password must be at most 30 characters",
-        },
-      });
-    }
 
-    if (!/[A-Z]/.test(password)) {
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !passwordSpecialRegex.test(password)) {
       return res.status(400).json({
         success: false,
         error: {
           field: "password",
-          message: "Password must contain at least 1 uppercase letter",
-        },
-      });
-    }
-
-    if (!/[a-z]/.test(password)) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          field: "password",
-          message: "Password must contain at least 1 lowercase letter",
-        },
-      });
-    }
-
-    if (!/[0-9]/.test(password)) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          field: "password",
-          message: "Password must contain at least 1 number",
-        },
-      });
-    }
-
-    if (!passwordSpecialRegex.test(password)) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          field: "password",
-          message: "Password must contain at least 1 special character",
+          message: "Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character",
         },
       });
     }
@@ -289,7 +225,7 @@ const login = async (req, res) => {
       });
     }
 
-    email = email.trim().toLowerCase();
+    email = email.trim();
 
     if (!emailRegex.test(email)) {
       return res.status(400).json({
