@@ -40,6 +40,10 @@ const createDatabaseIfNotExists = async () => {
 let pool;
 
 const initializePool = async () => {
+  if (pool) {
+    return pool;
+  }
+
   await createDatabaseIfNotExists();
   
   pool = new Pool({
@@ -57,6 +61,16 @@ const initializePool = async () => {
 
   // Create tables after database is ready
   await createUsersTableIfNotExists(pool);
+
+  return pool;
 };
 
-module.exports = { pool, initializePool };
+const getPool = () => {
+  if (!pool) {
+    throw new Error("Database pool has not been initialized yet");
+  }
+
+  return pool;
+};
+
+module.exports = { initializePool, getPool };
