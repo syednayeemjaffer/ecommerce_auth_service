@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const { getPool } = require("../config/db");
 const redis = require("../config/redis");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
+const { sendOtpMail } = require("../utils/mail");
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -32,23 +33,37 @@ const validateRegisterInput = (body, file) => {
   let { name, email, password, role } = body;
 
   // Name
-  if (!name?.trim()) return { error: badRequest(null, "name", "Please provide name") };
+  if (!name?.trim())
+    return { error: badRequest(null, "name", "Please provide name") };
   name = name.trim();
   if (name.length < 3 || name.length > 30)
-    return { error: { field: "name", message: "Name must be 3–30 characters" } };
+    return {
+      error: { field: "name", message: "Name must be 3–30 characters" },
+    };
   if (!NAME_REGEX.test(name))
-    return { error: { field: "name", message: "Name can only contain letters and spaces" } };
+    return {
+      error: {
+        field: "name",
+        message: "Name can only contain letters and spaces",
+      },
+    };
 
   // Email
-  if (!email?.trim()) return { error: { field: "email", message: "Please provide email" } };
+  if (!email?.trim())
+    return { error: { field: "email", message: "Please provide email" } };
   email = email.trim();
   if (!EMAIL_REGEX.test(email))
-    return { error: { field: "email", message: "Please enter a valid email address" } };
+    return {
+      error: { field: "email", message: "Please enter a valid email address" },
+    };
 
   // Password
-  if (!password) return { error: { field: "password", message: "Please provide password" } };
+  if (!password)
+    return { error: { field: "password", message: "Please provide password" } };
   if (password.length < 6 || password.length > 30)
-    return { error: { field: "password", message: "Password must be 6–30 characters" } };
+    return {
+      error: { field: "password", message: "Password must be 6–30 characters" },
+    };
   if (
     !/[A-Z]/.test(password) ||
     !/[a-z]/.test(password) ||
@@ -58,7 +73,8 @@ const validateRegisterInput = (body, file) => {
     return {
       error: {
         field: "password",
-        message: "Password must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character",
+        message:
+          "Password must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character",
       },
     };
 
@@ -69,7 +85,12 @@ const validateRegisterInput = (body, file) => {
 
   // Image MIME type (existence check only — do NOT write to disk here)
   if (file && !ALLOWED_MIME_TYPES.has(file.mimetype))
-    return { error: { field: "user_image", message: "Only png, jpg, jpeg images are allowed" } };
+    return {
+      error: {
+        field: "user_image",
+        message: "Only png, jpg, jpeg images are allowed",
+      },
+    };
 
   return { data: { name, email, password, role } };
 };
@@ -88,7 +109,9 @@ const register = async (req, res) => {
     const { name, email, password, role } = data;
 
     // 2. Check for duplicate email BEFORE touching the filesystem
-    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+      email,
+    ]);
     if (existing.rows.length > 0) {
       return res.status(409).json({
         success: false,
@@ -108,7 +131,7 @@ const register = async (req, res) => {
       `INSERT INTO users (name, email, password_hash, role, user_image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, email, role, user_image`,
-      [name, email, passwordHash, role, imagePath]
+      [name, email, passwordHash, role, imagePath],
     );
 
     return res.status(201).json({
@@ -122,14 +145,63 @@ const register = async (req, res) => {
   }
 };
 
+const sendRegisterOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const pool = getPool();
+
+    if (!email?.trim()) {
+      return badRequest(res, "email", "Please provide email");
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      return badRequest(res, "email", "Please enter a valid email address");
+    }
+
+    // check already registered
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+      normalizedEmail,
+    ]);
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: {
+          field: "email",
+          message: "Email already registered",
+        },
+      });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    await redis.set(`register_otp:${normalizedEmail}`, otp, "EX", 300); // 5 mins
+
+    await sendOtpMail(normalizedEmail, otp);
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
+    });
+  } catch (error) {
+    console.error("Send OTP error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+    });
+  }
+};
+
 const login = async (req, res) => {
   try {
     const pool = getPool();
     let { email, password } = req.body;
 
     // Validate email
-    if (!email?.trim())
-      return badRequest(res, "email", "Please provide email");
+    if (!email?.trim()) return badRequest(res, "email", "Please provide email");
     email = email.trim();
     if (!EMAIL_REGEX.test(email))
       return badRequest(res, "email", "Please enter a valid email address");
@@ -139,11 +211,16 @@ const login = async (req, res) => {
       return badRequest(res, "password", "Please provide password");
 
     // Fetch user
-    const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+    const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: { field: "email", message: "User not found, please create an account" },
+        error: {
+          field: "email",
+          message: "User not found, please create an account",
+        },
       });
     }
 
@@ -200,14 +277,9 @@ const refreshAccessToken = async (req, res) => {
       });
     }
 
-    const decoded = jwt.verify(
-      refreshToken,
-      process.env.JWT_REFRESH_SECRET
-    );
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
-    const storedToken = await redis.get(
-      `refresh:${decoded.id}`
-    );
+    const storedToken = await redis.get(`refresh:${decoded.id}`);
 
     if (!storedToken || storedToken !== refreshToken) {
       return res.status(401).json({
@@ -216,10 +288,9 @@ const refreshAccessToken = async (req, res) => {
       });
     }
 
-    const { rows } = await pool.query(
-      "SELECT * FROM users WHERE id = $1",
-      [decoded.id]
-    );
+    const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [
+      decoded.id,
+    ]);
 
     if (rows.length === 0) {
       return res.status(404).json({
@@ -238,7 +309,7 @@ const refreshAccessToken = async (req, res) => {
       `refresh:${user.id}`,
       newRefreshToken,
       "EX",
-      7 * 24 * 60 * 60
+      7 * 24 * 60 * 60,
     );
 
     res.cookie("refreshToken", newRefreshToken, {
@@ -267,10 +338,7 @@ const logout = async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
 
     if (refreshToken) {
-      const decoded = jwt.verify(
-        refreshToken,
-        process.env.JWT_REFRESH_SECRET
-      );
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
       await redis.del(`refresh:${decoded.id}`);
     }
@@ -299,7 +367,7 @@ const getProfile = async (req, res) => {
       `SELECT id, name, email, role, user_image, created_at
        FROM users
        WHERE id = $1`,
-      [req.user.id]
+      [req.user.id],
     );
 
     if (rows.length === 0) {
@@ -323,4 +391,65 @@ const getProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, refreshAccessToken, logout, getProfile };
+const getAllOrUserById = async (req, res) => {
+  try {
+    const pool = getPool();
+    const { id } = req.params;
+
+    // =========================
+    // GET SINGLE USER BY ID
+    // =========================
+    if (id) {
+      const { rows } = await pool.query(
+        `SELECT id, name, email, role, user_image, created_at
+         FROM users
+         WHERE id = $1`,
+        [id],
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        user: rows[0],
+      });
+    }
+
+    // =========================
+    // GET ALL USERS
+    // =========================
+    const { rows } = await pool.query(
+      `SELECT id, name, email, role, user_image, created_at
+       FROM users
+       ORDER BY created_at DESC`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      totalUsers: rows.length,
+      users: rows,
+    });
+  } catch (error) {
+    console.error("Get users error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+module.exports = {
+  sendRegisterOtp,
+  register,
+  login,
+  refreshAccessToken,
+  logout,
+  getProfile,
+  getAllOrUserById,
+};

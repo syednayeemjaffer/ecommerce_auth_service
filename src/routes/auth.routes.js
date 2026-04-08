@@ -7,6 +7,8 @@ const {
   refreshAccessToken,
   logout,
   getProfile,
+  getAllOrUserById,
+  sendRegisterOtp
 } = require("../controller/auth.controller");
 
 const uploadUserImage = require("../utils/userimage");
@@ -15,6 +17,7 @@ const {
   authorize,
 } = require("../middleware/auth.middleware");
 
+router.post("/send-register-otp", sendRegisterOtp);
 router.post(
   "/register",
   uploadUserImage.single("user_image"),
@@ -28,15 +31,17 @@ router.post("/logout", logout);
 router.get("/me", authenticate, getProfile);
 
 router.get(
-  "/admin-only",
+  "/users",
   authenticate,
   authorize("ADMIN"),
-  (req, res) => {
-    res.json({
-      success: true,
-      message: "Welcome Admin 🚀",
-    });
-  }
+  getAllOrUserById
+);
+
+router.get(
+  "/users/:id",
+  authenticate,
+  authorize("ADMIN"),
+  getAllOrUserById
 );
 
 module.exports = router;
