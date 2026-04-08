@@ -100,39 +100,78 @@ const register = async (req, res) => {
   try {
     const pool = getPool();
 
-    // 1. Validate all inputs (image NOT written yet)
+    // 1. Validate all inputs
     const { data, error } = validateRegisterInput(req.body, req.file);
+
     if (error) {
-      return res.status(400).json({ success: false, error });
-    }
-
-    const { name, email, password, role } = data;
-
-    // 2. Check for duplicate email BEFORE touching the filesystem
-    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
-      email,
-    ]);
-    if (existing.rows.length > 0) {
-      return res.status(409).json({
+      return res.status(400).json({
         success: false,
-        error: { field: "email", message: "Email already exists" },
+        error,
       });
     }
 
-    // 3. All checks passed — now safe to write image to disk
+    // ✅ USE VALIDATED DATA
+    const { name, email, password, role } = data;
+    const { otp } = req.body;
+
+    // =========================
+    // OTP VALIDATION
+    // =========================
+    if (!otp) {
+      return badRequest(res, "otp", "Please provide OTP");
+    }
+
+    const storedOtp = await redis.get(`register_otp:${email}`);
+
+    if (!storedOtp) {
+      return badRequest(res, "otp", "OTP expired or not sent");
+    }
+
+    if (storedOtp !== otp) {
+      return badRequest(res, "otp", "Invalid OTP");
+    }
+
+    // =========================
+    // CHECK DUPLICATE EMAIL
+    // =========================
+    const existing = await pool.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: {
+          field: "email",
+          message: "Email already exists",
+        },
+      });
+    }
+
+    // =========================
+    // SAVE IMAGE
+    // =========================
     let imagePath = null;
+
     if (req.file) {
       imagePath = saveImageToDisk(req.file);
     }
 
-    // 4. Hash password and insert user
+    // =========================
+    // CREATE USER
+    // =========================
     const passwordHash = await bcrypt.hash(password, 10);
+
     const { rows } = await pool.query(
       `INSERT INTO users (name, email, password_hash, role, user_image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, email, role, user_image`,
-      [name, email, passwordHash, role, imagePath],
+      [name, email, passwordHash, role, imagePath]
     );
+
+    // OTP delete after successful register
+    await redis.del(`register_otp:${email}`);
 
     return res.status(201).json({
       success: true,
@@ -141,7 +180,11 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error("Register error:", error.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+
+    return res.status(500).json({
+      success: false,
+      message: error.message, // temporary for debugging
+    });
   }
 };
 
