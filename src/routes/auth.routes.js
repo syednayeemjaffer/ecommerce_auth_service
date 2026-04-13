@@ -86,7 +86,7 @@ router.get(
 // ─── User Profile ─────────────────────────────────────────────────────────────
 
 // Get the authenticated user's own profile
-router.get("/me", authenticate, getProfile);
+router.get("/user", authenticate, getProfile);
 
 // ─── Admin — User Management ──────────────────────────────────────────────────
 
