@@ -1,19 +1,19 @@
 const bcrypt = require("bcrypt");
-const fs    = require("fs");
-const path  = require("path");
-const jwt   = require("jsonwebtoken");
+const fs = require("fs");
+const path = require("path");
+const jwt = require("jsonwebtoken");
 
-const { getPool }                               = require("../config/db");
-const redis                                     = require("../config/redis");
+const { getPool } = require("../config/db");
+const redis = require("../config/redis");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
-const { sendOtpMail }                           = require("../utils/mail");
+const { sendOtpMail } = require("../utils/mail");
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const EMAIL_REGEX            = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NAME_REGEX             = /^[A-Za-z\s]+$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NAME_REGEX = /^[A-Za-z\s]+$/;
 const PASSWORD_SPECIAL_REGEX = /[!@#$%^&*(),.?":{}|<>]/;
-const ALLOWED_MIME_TYPES     = new Set(["image/png", "image/jpeg", "image/jpg"]);
-const UPLOAD_DIR             = path.join(__dirname, "../../uploads");
+const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg"]);
+const UPLOAD_DIR = path.join(__dirname, "../../uploads");
 
 // Refresh token TTL: 7 days in seconds
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60;
@@ -53,9 +53,9 @@ const saveImageToDisk = (file) => {
 const setRefreshTokenCookie = (res, token) => {
   res.cookie("refreshToken", token, {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === "production", // HTTPS only in prod
+    secure: process.env.NODE_ENV === "production", // HTTPS only in prod
     sameSite: "strict",
-    maxAge:   REFRESH_TOKEN_TTL * 1000, // ms
+    maxAge: REFRESH_TOKEN_TTL * 1000, // ms
   });
 };
 
@@ -77,22 +77,33 @@ const validateRegisterInput = (body, file) => {
     return { error: { field: "name", message: "Please provide name" } };
   name = name.trim();
   if (name.length < 3 || name.length > 30)
-    return { error: { field: "name", message: "Name must be 3–30 characters" } };
+    return {
+      error: { field: "name", message: "Name must be 3–30 characters" },
+    };
   if (!NAME_REGEX.test(name))
-    return { error: { field: "name", message: "Name can only contain letters and spaces" } };
+    return {
+      error: {
+        field: "name",
+        message: "Name can only contain letters and spaces",
+      },
+    };
 
   // ── Email ─────────────────────────────────────────────────────────────────
   if (!email?.trim())
     return { error: { field: "email", message: "Please provide email" } };
   email = email.trim();
   if (!EMAIL_REGEX.test(email))
-    return { error: { field: "email", message: "Please enter a valid email address" } };
+    return {
+      error: { field: "email", message: "Please enter a valid email address" },
+    };
 
   // ── Password ──────────────────────────────────────────────────────────────
   if (!password)
     return { error: { field: "password", message: "Please provide password" } };
   if (password.length < 6 || password.length > 30)
-    return { error: { field: "password", message: "Password must be 6–30 characters" } };
+    return {
+      error: { field: "password", message: "Password must be 6–30 characters" },
+    };
   if (
     !/[A-Z]/.test(password) ||
     !/[a-z]/.test(password) ||
@@ -102,7 +113,8 @@ const validateRegisterInput = (body, file) => {
     return {
       error: {
         field: "password",
-        message: "Password must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character",
+        message:
+          "Password must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character",
       },
     };
 
@@ -113,7 +125,12 @@ const validateRegisterInput = (body, file) => {
 
   // ── Profile Image (MIME type check only — no disk write here) ─────────────
   if (file && !ALLOWED_MIME_TYPES.has(file.mimetype))
-    return { error: { field: "user_image", message: "Only png, jpg, jpeg images are allowed" } };
+    return {
+      error: {
+        field: "user_image",
+        message: "Only png, jpg, jpeg images are allowed",
+      },
+    };
 
   return { data: { name, email, password, role } };
 };
@@ -131,8 +148,7 @@ const sendRegisterOtp = async (req, res) => {
     const { email } = req.body;
 
     // Validate email presence and format
-    if (!email?.trim())
-      return badRequest(res, "email", "Please provide email");
+    if (!email?.trim()) return badRequest(res, "email", "Please provide email");
 
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -140,10 +156,9 @@ const sendRegisterOtp = async (req, res) => {
       return badRequest(res, "email", "Please enter a valid email address");
 
     // Reject if email is already registered
-    const existing = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [normalizedEmail]
-    );
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+      normalizedEmail,
+    ]);
     if (existing.rows.length > 0) {
       return res.status(409).json({
         success: false,
@@ -158,10 +173,14 @@ const sendRegisterOtp = async (req, res) => {
     // Send the OTP via email
     await sendOtpMail(normalizedEmail, otp);
 
-    return res.status(200).json({ success: true, message: "OTP sent successfully" });
+    return res
+      .status(200)
+      .json({ success: true, message: "OTP sent successfully" });
   } catch (error) {
     console.error("Send OTP error:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to send OTP" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to send OTP" });
   }
 };
 
@@ -184,20 +203,16 @@ const register = async (req, res) => {
     const { otp } = req.body;
 
     // 2. Verify OTP
-    if (!otp)
-      return badRequest(res, "otp", "Please provide OTP");
+    if (!otp) return badRequest(res, "otp", "Please provide OTP");
 
     const storedOtp = await redis.get(`register_otp:${email}`);
-    if (!storedOtp)
-      return badRequest(res, "otp", "OTP expired or not sent");
-    if (storedOtp !== otp)
-      return badRequest(res, "otp", "Invalid OTP");
+    if (!storedOtp) return badRequest(res, "otp", "OTP expired or not sent");
+    if (storedOtp !== otp) return badRequest(res, "otp", "Invalid OTP");
 
     // 3. Check for duplicate email
-    const existing = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
-    );
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+      email,
+    ]);
     if (existing.rows.length > 0) {
       return res.status(409).json({
         success: false,
@@ -217,7 +232,7 @@ const register = async (req, res) => {
       `INSERT INTO users (name, email, password_hash, role, user_image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, email, role, user_image`,
-      [name, email, passwordHash, role, imagePath]
+      [name, email, passwordHash, role, imagePath],
     );
 
     // 6. Invalidate OTP after successful registration
@@ -245,8 +260,7 @@ const login = async (req, res) => {
     let { email, password } = req.body;
 
     // Validate email
-    if (!email?.trim())
-      return badRequest(res, "email", "Please provide email");
+    if (!email?.trim()) return badRequest(res, "email", "Please provide email");
     email = email.trim();
     if (!EMAIL_REGEX.test(email))
       return badRequest(res, "email", "Please enter a valid email address");
@@ -256,14 +270,16 @@ const login = async (req, res) => {
       return badRequest(res, "password", "Please provide password");
 
     // Fetch user from DB
-    const { rows } = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
-    );
+    const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        error: { field: "email", message: "User not found, please create an account" },
+        error: {
+          field: "email",
+          message: "User not found, please create an account",
+        },
       });
     }
 
@@ -279,11 +295,16 @@ const login = async (req, res) => {
     }
 
     // Generate tokens
-    const accessToken  = generateAccessToken(user);
+    const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
     // Store refresh token in Redis (keyed by user ID) for rotation/invalidation
-    await redis.set(`refresh:${user.id}`, refreshToken, "EX", REFRESH_TOKEN_TTL);
+    await redis.set(
+      `refresh:${user.id}`,
+      refreshToken,
+      "EX",
+      REFRESH_TOKEN_TTL,
+    );
 
     // Set refresh token as httpOnly cookie
     setRefreshTokenCookie(res, refreshToken);
@@ -293,10 +314,10 @@ const login = async (req, res) => {
       message: "Login successful",
       accessToken,
       user: {
-        id:         user.id,
-        name:       user.name,
-        email:      user.email,
-        role:       user.role,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
         user_image: user.user_image,
       },
     });
@@ -313,11 +334,13 @@ const login = async (req, res) => {
  */
 const refreshAccessToken = async (req, res) => {
   try {
-    const pool         = getPool();
+    const pool = getPool();
     const refreshToken = req.cookies.refreshToken;
 
     if (!refreshToken) {
-      return res.status(401).json({ success: false, message: "Refresh token missing" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Refresh token missing" });
     }
 
     // Verify JWT signature and expiry
@@ -326,26 +349,34 @@ const refreshAccessToken = async (req, res) => {
     // Compare against stored token in Redis to detect reuse after logout/rotation
     const storedToken = await redis.get(`refresh:${decoded.id}`);
     if (!storedToken || storedToken !== refreshToken) {
-      return res.status(401).json({ success: false, message: "Invalid refresh token" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid refresh token" });
     }
 
     // Fetch latest user data from DB
-    const { rows } = await pool.query(
-      "SELECT * FROM users WHERE id = $1",
-      [decoded.id]
-    );
+    const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [
+      decoded.id,
+    ]);
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     const user = rows[0];
 
     // Issue new token pair (rotation: old refresh token is replaced)
-    const newAccessToken  = generateAccessToken(user);
+    const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user);
 
     // Overwrite old refresh token in Redis
-    await redis.set(`refresh:${user.id}`, newRefreshToken, "EX", REFRESH_TOKEN_TTL);
+    await redis.set(
+      `refresh:${user.id}`,
+      newRefreshToken,
+      "EX",
+      REFRESH_TOKEN_TTL,
+    );
 
     // Overwrite cookie with new refresh token
     setRefreshTokenCookie(res, newRefreshToken);
@@ -353,7 +384,9 @@ const refreshAccessToken = async (req, res) => {
     return res.status(200).json({ success: true, accessToken: newAccessToken });
   } catch (error) {
     console.error("Refresh error:", error.message);
-    return res.status(401).json({ success: false, message: "Invalid or expired refresh token" });
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid or expired refresh token" });
   }
 };
 
@@ -375,12 +408,16 @@ const logout = async (req, res) => {
 
     res.clearCookie("refreshToken");
 
-    return res.status(200).json({ success: true, message: "Logged out successfully" });
+    return res
+      .status(200)
+      .json({ success: true, message: "Logged out successfully" });
   } catch (error) {
     // Even if verification fails (expired token, etc.), still clear the cookie
     console.error("Logout error:", error.message);
     res.clearCookie("refreshToken");
-    return res.status(200).json({ success: true, message: "Logged out successfully" });
+    return res
+      .status(200)
+      .json({ success: true, message: "Logged out successfully" });
   }
 };
 
@@ -391,11 +428,10 @@ const logout = async (req, res) => {
  */
 const forgotPasswordOtp = async (req, res) => {
   try {
-    const pool  = getPool();
+    const pool = getPool();
     const { email } = req.body;
 
-    if (!email?.trim())
-      return badRequest(res, "email", "Please provide email");
+    if (!email?.trim()) return badRequest(res, "email", "Please provide email");
 
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -403,10 +439,9 @@ const forgotPasswordOtp = async (req, res) => {
       return badRequest(res, "email", "Please enter valid email");
 
     // Ensure the user exists before sending OTP
-    const existing = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [normalizedEmail]
-    );
+    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+      normalizedEmail,
+    ]);
     if (existing.rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -426,7 +461,9 @@ const forgotPasswordOtp = async (req, res) => {
     });
   } catch (error) {
     console.error("Forgot password error:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to send OTP" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to send OTP" });
   }
 };
 
@@ -441,21 +478,17 @@ const resetPassword = async (req, res) => {
     let { email, otp, newPassword } = req.body;
 
     // Validate inputs
-    if (!email?.trim())
-      return badRequest(res, "email", "Please provide email");
+    if (!email?.trim()) return badRequest(res, "email", "Please provide email");
     email = email.trim().toLowerCase();
 
-    if (!otp)
-      return badRequest(res, "otp", "Please provide OTP");
+    if (!otp) return badRequest(res, "otp", "Please provide OTP");
     if (!newPassword)
       return badRequest(res, "newPassword", "Please provide new password");
 
     // Verify OTP from Redis
     const storedOtp = await redis.get(`forgot_otp:${email}`);
-    if (!storedOtp)
-      return badRequest(res, "otp", "OTP expired or not sent");
-    if (storedOtp !== otp)
-      return badRequest(res, "otp", "Invalid OTP");
+    if (!storedOtp) return badRequest(res, "otp", "OTP expired or not sent");
+    if (storedOtp !== otp) return badRequest(res, "otp", "Invalid OTP");
 
     // Validate new password strength
     if (
@@ -469,21 +502,23 @@ const resetPassword = async (req, res) => {
       return badRequest(
         res,
         "newPassword",
-        "Password must contain uppercase, lowercase, number and special char"
+        "Password must contain uppercase, lowercase, number and special char",
       );
     }
 
     // Hash and update password
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await pool.query(
-      "UPDATE users SET password_hash = $1 WHERE email = $2",
-      [passwordHash, email]
-    );
+    await pool.query("UPDATE users SET password_hash = $1 WHERE email = $2", [
+      passwordHash,
+      email,
+    ]);
 
     // Invalidate OTP after successful reset
     await redis.del(`forgot_otp:${email}`);
 
-    return res.status(200).json({ success: true, message: "Password reset successful" });
+    return res
+      .status(200)
+      .json({ success: true, message: "Password reset successful" });
   } catch (error) {
     console.error("Reset password error:", error.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -496,7 +531,7 @@ const resetPassword = async (req, res) => {
  */
 const changePassword = async (req, res) => {
   try {
-    const pool   = getPool();
+    const pool = getPool();
     const userId = req.user.id;
     const { oldPassword, newPassword } = req.body;
 
@@ -508,10 +543,12 @@ const changePassword = async (req, res) => {
     // Fetch current password hash
     const { rows } = await pool.query(
       "SELECT password_hash FROM users WHERE id = $1",
-      [userId]
+      [userId],
     );
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     // Verify old password
@@ -521,12 +558,14 @@ const changePassword = async (req, res) => {
 
     // Hash and update to new password
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await pool.query(
-      "UPDATE users SET password_hash = $1 WHERE id = $2",
-      [passwordHash, userId]
-    );
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+      passwordHash,
+      userId,
+    ]);
 
-    return res.status(200).json({ success: true, message: "Password changed successfully" });
+    return res
+      .status(200)
+      .json({ success: true, message: "Password changed successfully" });
   } catch (error) {
     console.error("Change password error:", error.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -542,11 +581,16 @@ const oauthLoginHandler = async (req, res) => {
   try {
     const user = req.user; // Set by Passport strategy
 
-    const accessToken  = generateAccessToken(user);
+    const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
     // Store refresh token in Redis
-    await redis.set(`refresh:${user.id}`, refreshToken, "EX", REFRESH_TOKEN_TTL);
+    await redis.set(
+      `refresh:${user.id}`,
+      refreshToken,
+      "EX",
+      REFRESH_TOKEN_TTL,
+    );
 
     // Set httpOnly refresh cookie
     setRefreshTokenCookie(res, refreshToken);
@@ -554,7 +598,7 @@ const oauthLoginHandler = async (req, res) => {
     // Redirect to frontend with access token in URL
     // Note: Frontend should immediately extract + store this token, then clean the URL
     return res.redirect(
-      `${process.env.FRONTEND_URL}/oauth-success?token=${accessToken}`
+      `${process.env.FRONTEND_URL}/oauth/callback?token=${accessToken}`,
     );
   } catch (error) {
     console.error("OAuth callback error:", error.message);
@@ -574,11 +618,13 @@ const getProfile = async (req, res) => {
       `SELECT id, name, email, role, user_image, created_at
        FROM users
        WHERE id = $1`,
-      [req.user.id]
+      [req.user.id],
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     return res.status(200).json({ success: true, user: rows[0] });
@@ -595,8 +641,8 @@ const getProfile = async (req, res) => {
  */
 const getAllOrUserById = async (req, res) => {
   try {
-    const pool     = getPool();
-    const { id }   = req.params;
+    const pool = getPool();
+    const { id } = req.params;
 
     // ── Single User ────────────────────────────────────────────────────────
     if (id) {
@@ -604,10 +650,12 @@ const getAllOrUserById = async (req, res) => {
         `SELECT id, name, email, role, user_image, created_at
          FROM users
          WHERE id = $1`,
-        [id]
+        [id],
       );
       if (rows.length === 0) {
-        return res.status(404).json({ success: false, message: "User not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
       }
       return res.status(200).json({ success: true, user: rows[0] });
     }
@@ -616,7 +664,7 @@ const getAllOrUserById = async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, name, email, role, user_image, created_at
        FROM users
-       ORDER BY created_at DESC`
+       ORDER BY created_at DESC`,
     );
 
     return res.status(200).json({
