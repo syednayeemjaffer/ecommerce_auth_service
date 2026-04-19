@@ -1,40 +1,25 @@
 const jwt = require("jsonwebtoken");
 
-// ─── Token Generators ─────────────────────────────────────────────────────────
-
 /**
- * Generates a short-lived access token (15 minutes).
- * Payload includes id, email, and role for use in middleware/controllers.
- *
- * @param {Object} user - User row from the database
- * @returns {string} Signed JWT access token
+ * Access token — 1m for testing, use "15m" in production.
+ * Contains id, email, role so middleware never needs a DB lookup.
  */
-const generateAccessToken = (user) => {
-  return jwt.sign(
-    {
-      id:    user.id,
-      email: user.email,
-      role:  user.role,
-    },
+const generateAccessToken = (user) =>
+  jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: "15m" }
+    { expiresIn: "1m" }
   );
-};
 
 /**
- * Generates a long-lived refresh token (7 days).
- * Payload contains only the user ID — minimal claims for security.
- * The actual user data is re-fetched from DB during token rotation.
- *
- * @param {Object} user - User row from the database
- * @returns {string} Signed JWT refresh token
+ * Refresh token — 2m for testing, use "7d" in production.
+ * Minimal payload — only id. Real user data re-fetched from DB on rotation.
  */
-const generateRefreshToken = (user) => {
-  return jwt.sign(
+const generateRefreshToken = (user) =>
+  jwt.sign(
     { id: user.id },
     process.env.JWT_REFRESH_SECRET,
-    { expiresIn: "7d" }
+    { expiresIn: "2m" }
   );
-};
 
 module.exports = { generateAccessToken, generateRefreshToken };
