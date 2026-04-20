@@ -249,6 +249,7 @@ const login = async (req, res) => {
  *   - Easier debugging and testing
  */
 const refreshAccessToken = async (req, res) => {
+  try {
   console.log("=== REFRESH TOKEN REQUEST RECEIVED ===");
   const pool = getPool();
   const incomingRefreshToken = req.cookies.refreshToken;
@@ -269,8 +270,13 @@ const refreshAccessToken = async (req, res) => {
   }
 
   // Step 2: Check Redis for the stored token
-  const storedToken = await redis.get(`refresh:${decoded.id}`);
-
+  let storedToken;
+  try {
+    storedToken = await redis.get(`refresh:${decoded.id}`);
+  } catch (err) {
+    console.error("Redis error:", err.message);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
   if (!storedToken) {
     // Token not in Redis — it was already rotated or never existed
     res.clearCookie("refreshToken");
@@ -312,6 +318,10 @@ const refreshAccessToken = async (req, res) => {
     // Return user so frontend never needs a separate GET /user after session restore
     user: formatUser(user),
   });
+  } catch (error) {
+    console.error("Refresh error:", error.message);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
 };
 
 const logout = async (req, res) => {
